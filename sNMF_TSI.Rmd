@@ -83,7 +83,7 @@ library("readr")
 Read in and convert vcf file to "tsi_only2018.admix.geno" format
 
 
-```{r}
+```{r, eval=FALSE}
 
 #try with write_rds
 
