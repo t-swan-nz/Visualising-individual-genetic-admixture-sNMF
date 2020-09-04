@@ -1,0 +1,452 @@
+---
+title: "Scripts associated with running sNMF (LEA package)"
+author: "Tom Swan"
+date: "20/08/2020"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+Scripts associated with using sNMF (LEA package) for estimating individual ancestry coefficients and ancestral allele frequencies. 
+
+Data:
+<i>Aedes albopictus</i> collected across 12 islands in the Torres Strait, Australia over 10 days in April-May 2018.
+See Schmidt et al. (2020) Methods and materials for more information about collections, genotyping and filtering.
+"For analysis within the TSI, we were cautious to avoid filtering bias caused by close kin and uneven samples sizes. Accordingly, we produced datasets of n = 22 for each community and for the whole region, with 22 the maximum number of genotypes that ensured equal sample sizes after removing close kin within and across islands. Kin were removed in order of missing data, other genotypes were removed to retain the largest possible geographical distribution of genotypes. Each dataset was imputed and phased with Beagle and hereafter referred to as the “n=22” datasets.
+
+Preliminaries:
+1. Make sure all required R packages are installed and loaded.
+2. Three files are needed: 1) SNP data "tsi_only2018.vcf" 2) Population map "tsi_only2018.txt" 3) Geographic coordinates of individuals ""
+3. Data can be accessed from: (include when published).
+4. Set an appropriate working directory where the dataset will be stored.
+
+Notes:
+"tsi_only2018.vcf" contains 22 individuals over 12 islands. Temporal sampling of Masig-2019 is excluded in this analysis.
+
+Useful links:
+https://github.com/Tom-Jenkins/admixture_pie_chart_map_tutorial/blob/master/pie_chart_admixture_map_tutorial.R
+http://membres-timc.imag.fr/Olivier.Francois/LEA/files/LEA_github.pdf
+
+```{r knitr_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=15, fig.height=12, fig.path='RmdFigs/',
+                      warning=FALSE, message=FALSE)
+set.seed(53079239)
+```
+
+Required packages:
+
+```{r load packages, include = FALSE}
+
+library("plotly")
+library("devtools")
+library("tidyverse")
+# devtools::install_github("bcm-uga/LEA")
+library("LEA")
+library("ggplot2")
+library("factoextra")
+library("FactoMineR")
+library("corrplot")
+library("plotly")
+library("tess3r")
+library("mapplots")
+library("devtools")
+library("sf")
+library("adegenet")
+library("vcfR")
+library("poppr")
+library("reshape2")
+library("ggsn")
+library("raster")
+library("rgeos")
+library("maps")
+library("maptools")
+library("grid")
+library("miscTools")
+library("stringr")
+library("ggpubr")
+library("ggplot2")
+library("rgdal")
+library("rgeos")
+library("maptools")
+library("grid")
+library("gridExtra")
+library("maps")
+library("readr")
+```
+
+### Data import
+
+Read in and convert vcf file to "tsi_only2018.admix.geno" format
+
+
+```{r}
+
+#try with write_rds
+
+# write_rds(path = "tsi_only2018.vcf", "cache.rds")
+#     
+# import_vcf <- function(x){
+#   if (x == "cache.rds"){
+#   return (read_rds(x))}
+#   else if (x !="cahce.rds"){
+#   return("N")  
+#   }}
+
+#vcf2geno(input.file = "cache.rds", "tsi_only2018.admix.geno", force = T)
+
+vcf2geno(input.file = "tsi_only2018.vcf", "tsi_only2018.admix.geno", force = T)
+
+#reading in the population map
+
+tsi_admix_pop <- read.delim("tsi_only2018.txt", row.names =1, header = F)
+
+#Read in the vcf and convert this to "genid" format to name individuals (indNames function) for sNMF individual bar plots.
+
+vcf_tsi_22 <- read.vcfR("tsi_only2018.vcf", verbose = F)
+View(vcf_tsi_22)
+dim(vcf_tsi_22)
+
+#vcf has read in. Now convert this to genid.
+
+tsi_22_genid <- vcfR2genind(vcf_tsi_22)
+
+#this file is now genid format.
+class(tsi_22_genid)
+
+nLoc(tsi_22_genid) # 25,123 loci
+nInd(tsi_22_genid) # 264 individuals
+
+```
+
+###sNMF function
+
+The sNMF function estimates ancestry coefficients using the sparse non-negative matrix factorization. The function returns a "project" containing all runs of the sNMF run for the "tsi_only2018.admix.geno". 
+
+As the K is not clearly defined, it can be useful to perform several runs for various numbers of ancestral lineages (K).
+
+```{r tsi snmf working with the thinned/non-linked file, include=TRUE}
+
+# "project2" takes about 30 mins with 50 repetitions. Example here is of only 1 repetitions (for speed), but in the manuscript, 50 were used.
+set.seed(123)
+project2 = snmf("tsi_only2018.admix.geno",
+                K = 1:12, # number of ancestral populations to use - 12 communities.
+                entropy = TRUE, 
+                repetitions = 1, # 50 repetitions for each K
+                project = "new")
+
+# Note: this will randomly estimate individual ancestry coefficients, thus two projects may not be completely alike (close, but not completely alike).
+# sNMF is a visulisation 
+
+show(project2)
+
+summary(project2)
+
+# Plot cross-entropy results to assess optimal number of K
+# The cross-entropy citerion can help choose the number of ancestral populations that best explains the genotypic data 
+#(Alexander and Lange, 2011; Frichot et al., 2014).
+
+plot(project2, cex = 1.2, col = "lightblue", pch = 19)
+
+# Smaller values of cross-entropy usually mean better runs
+# Suggestion is to choose the 'knee', which will give genetic clusters.
+# A plateau usually represents the K that best fits the data
+# However this is not very clear with our data. Let's try with K=2 first and plot other values of K later on.
+# Plot cross-entropy results to assess optimal number of K
+
+#extract the cross-entropy of all runs where K = 2.
+ce2 = cross.entropy(project2, K = 2)
+ce2
+
+#extract the cross-entropy of all runs where K = 3.
+
+#find the run with the lowest cross entropy.
+best2 = which.min(ce2)
+best2
+
+# use this lowest cross entropy score to build the qmatrix.
+qmatrix = Q(project2, K = 2, run = best2)
+
+```
+
+###Individual admixture populations K = 2
+
+```{r}
+
+#using the ce2 scores. This will plot the following.
+
+#label column names of qmatrix.
+ncol(qmatrix)
+cluster_names = c()
+for (i in 1:ncol(qmatrix)){
+  cluster_names[i] = paste("Cluster", i)
+}
+cluster_names
+colnames(qmatrix) = cluster_names
+head(qmatrix)
+str(qmatrix)
+
+qmatrix
+
+#Reading in Individuals and sites to the qmatrix 
+
+tsi_only2018 <- read.delim("tsi_only2018.txt", header = F)
+Sites <- as.character(tsi_only2018$V2)
+Ind <- as.character(tsi_only2018$V1)
+#add new individual row for IDs to qmatrix
+
+qmatrix <- cbind(qmatrix, Sites)
+head(qmatrix)
+#have island names
+qmatrix <- cbind(qmatrix, Ind)
+head(qmatrix)
+
+# This will now display the ancestral lineage with the Island and individual.
+
+# Converting this to a dataframe
+
+qmatrix_data2 <- as.data.frame(qmatrix)
+
+# Now converting it to long format
+
+longtest5 <- melt(qmatrix_data2, id.vars = c("Sites","Ind"))
+str(longtest5)
+
+#conversion of values to numeric
+longtest5$value <- as.numeric(as.character(longtest5$value))
+str(longtest5)
+
+#this is it.
+
+#order from West - East using the factor function
+sites.order <- c("Keriri","Badu","Mabuiag","Kubin","StPauls","Warraber", "Poruma","Iama","Masig","Ugar","Erub","Mer")
+longtest5$Sites_ord = factor(longtest5$Sites, levels = sites.order)
+
+# #facet labels - unsure if this is correct here. 
+# levels(longtest5$Sites)
+# facet.labs <- c("Badu","Erub","Iama","Keriri","Kubin","Mabuiag","Masig","Mer","Poruma","StPauls","Ugar","Warraber")
+# levels(longtest5$Sites) = facet.labs
+# levels(longtest5$Sites)
+
+# definining the colour palette
+pal_K2_b_g <- colorRampPalette(c("grey", "black"))
+cols <- pal_K2_b_g(length(unique(longtest5$variable)))
+
+admix.bar_tsi_K2_b_g <- ggplot(data = longtest5, aes(x=Ind, y =value, fill = variable, ))+ 
+                geom_bar(stat = "identity", width = 1)+
+         scale_y_continuous(expand = c(0,0))+
+          facet_wrap(~Sites_ord, scales = "free", ncol = 4)+
+  scale_fill_manual(values = cols)+
+  ylab("Admixture proportion")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text = element_text(colour="black", size=12),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12))
+admix.bar_tsi_K2_b_g
+
+ggplotly()
+
+# colour palettes
+
+pal_K2 <- colorRampPalette(c("light green", "purple"))
+cols <- pal_K2(length(unique(longtest5$variable)))
+
+admix.bar_tsi_K2_col <- ggplot(data = longtest5, aes(x=Ind, y =value, fill = variable, ))+ 
+                geom_bar(stat = "identity", width = 1)+
+         scale_y_continuous(expand = c(0,0))+
+          facet_wrap(~Sites_ord, scales = "free", ncol = 4)+
+  scale_fill_manual(values = cols)+
+  ylab("Admixture proportion")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text = element_text(colour="black", size=12),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12))
+admix.bar_tsi_K2_col
+
+ggplotly()
+
+```
+
+###Individual admixture populations K = 3
+
+```{r}
+#extract the cross-entropy of all runs where K = 3.
+ce3 = cross.entropy(project2, K = 3)
+ce3
+
+#extract the cross-entropy of all runs where K = 3.
+
+#find the run with the lowest cross entropy.
+best3 = which.min(ce3)
+best3
+
+# use this lowest cross entropy score to build the qmatrix.
+qmatrix3 = Q(project2, K = 3, run = best3)
+
+#label column names of qmatrix.
+ncol(qmatrix3)
+cluster_names = c()
+for (i in 1:ncol(qmatrix3)){
+  cluster_names[i] = paste("Cluster", i)
+}
+cluster_names
+colnames(qmatrix3) = cluster_names
+head(qmatrix3)
+str(qmatrix3)
+
+qmatrix3
+
+qmatrix3 <- cbind(qmatrix3, Sites)
+head(qmatrix3)
+#have island names
+qmatrix3 <- cbind(qmatrix3, Ind)
+head(qmatrix3)
+
+# This will now display the ancestral lineage with the Island and individual.
+
+# Converting this to a dataframe
+
+qmatrix3_data_K3 <- as.data.frame(qmatrix3)
+
+# Now converting it to long format
+
+longtest_K3 <- melt(qmatrix3_data_K3, id.vars = c("Sites","Ind"))
+str(longtest_K3)
+
+#conversion of values to numeric
+longtest_K3$value <- as.numeric(as.character(longtest_K3$value))
+str(longtest_K3)
+
+#this is it.
+
+#order from West - East using the factor function
+sites.order <- c("Keriri","Badu","Mabuiag","Kubin","StPauls","Warraber", "Poruma","Iama","Masig","Ugar","Erub","Mer")
+longtest_K3$Sites_ord = factor(longtest_K3$Sites, levels = sites.order)
+
+# colour palettes
+
+pal_K3 <- colorRampPalette(c("Orange","light green", "purple"))
+cols_K3 <- pal_K3(length(unique(longtest_K3$variable)))
+
+admix.bar_tsi_K3_col <- ggplot(data = longtest_K3, aes(x=Ind, y =value, fill = variable, ))+ 
+                geom_bar(stat = "identity", width = 1)+
+         scale_y_continuous(expand = c(0,0))+
+          facet_wrap(~Sites_ord, scales = "free", ncol = 4)+
+  scale_fill_manual(values = cols_K3)+
+  ylab("Admixture proportion")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text = element_text(colour="black", size=12),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12))
+admix.bar_tsi_K3_col
+
+ggplotly()
+
+```
+
+###Individual admixture populations K = 4
+
+```{r}
+
+#extract the cross-entropy of all runs where K = 3.
+ce4 = cross.entropy(project2, K = 4)
+ce4
+
+#extract the cross-entropy of all runs where K = 3.
+
+#find the run with the lowest cross entropy.
+best4 = which.min(ce4)
+best4
+
+# use this lowest cross entropy score to build the qmatrix.
+qmatrix4 = Q(project2, K = 4, run = best4)
+
+#label column names of qmatrix.
+ncol(qmatrix4)
+cluster_names = c()
+for (i in 1:ncol(qmatrix4)){
+  cluster_names[i] = paste("Cluster", i)
+}
+cluster_names
+colnames(qmatrix4) = cluster_names
+head(qmatrix4)
+str(qmatrix4)
+
+qmatrix4
+
+qmatrix4 <- cbind(qmatrix4, Sites)
+head(qmatrix4)
+#have island names
+qmatrix4 <- cbind(qmatrix4, Ind)
+head(qmatrix4)
+
+# This will now display the ancestral lineage with the Island and individual.
+
+# Converting this to a dataframe
+
+qmatrix4_data_K4 <- as.data.frame(qmatrix4)
+
+# Now converting it to long format
+
+longtest_K4 <- melt(qmatrix4_data_K4, id.vars = c("Sites","Ind"))
+str(longtest_K4)
+
+#conversion of values to numeric
+longtest_K4$value <- as.numeric(as.character(longtest_K4$value))
+str(longtest_K4)
+
+#this is it.
+
+#order from West - East using the factor function
+sites.order <- c("Keriri","Badu","Mabuiag","Kubin","StPauls","Warraber", "Poruma","Iama","Masig","Ugar","Erub","Mer")
+longtest_K4$Sites_ord = factor(longtest_K4$Sites, levels = sites.order)
+
+# colour palettes
+
+pal_K4 <- colorRampPalette(c("Orange","light green", "purple", "navy"))
+cols_K4 <- pal_K4(length(unique(longtest_K4$variable)))
+
+admix.bar_tsi_K4_col <- ggplot(data = longtest_K4, aes(x=Ind, y =value, fill = variable, ))+ 
+                geom_bar(stat = "identity", width = 1)+
+         scale_y_continuous(expand = c(0,0))+
+          facet_wrap(~Sites_ord, scales = "free", ncol = 4)+
+  scale_fill_manual(values = cols_K4)+
+  ylab("Admixture proportion")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text = element_text(colour="black", size=12),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12))
+admix.bar_tsi_K4_col
+
+ggplotly()
+
+```
+
+The K with the lowest cross-entropy score was K = 11. However, when visualised, this K overfit the data (see Schmidt et al. 2020 Sup Figs). A number of K clusters between 2–4 could be supported as visualised here. K = 2 was found to be the optimal number of ancestral lineages for summarising genetic variation between individuals (Schmidt et al. 2020: Fig 1). This level of K was supported by Maynard et al. (2016), when using microsatellite loci to examine Ae. albopictus genetic structure throughout the TSI.
+
+```{r}
+session_info()
+```
+
