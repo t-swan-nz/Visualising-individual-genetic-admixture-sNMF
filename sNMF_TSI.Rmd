@@ -4,29 +4,30 @@ author: "Tom Swan"
 date: "20/08/2020"
 output:
   html_document: default
-  pdf_document: default
-  word_document: default
 editor_options: 
   chunk_output_type: console
 ---
 
-Scripts associated with using sNMF (LEA package) for estimating individual ancestry coefficients and ancestral allele frequencies. 
+## Scripts associated with using sNMF (LEA package) for estimating individual ancestry coefficients and ancestral allele frequencies. 
 
-Data:
+# Data:
 <i>Aedes albopictus</i> collected across 12 islands in the Torres Strait, Australia over 10 days in April-May 2018.
 See Schmidt et al. (2020) Methods and materials for more information about collections, genotyping and filtering.
 "For analysis within the TSI, we were cautious to avoid filtering bias caused by close kin and uneven samples sizes. Accordingly, we produced datasets of n = 22 for each community and for the whole region, with 22 the maximum number of genotypes that ensured equal sample sizes after removing close kin within and across islands. Kin were removed in order of missing data, other genotypes were removed to retain the largest possible geographical distribution of genotypes. Each dataset was imputed and phased with Beagle and hereafter referred to as the “n=22” datasets.
 
-Preliminaries:
-1. Make sure all required R packages are installed and loaded.
-2. Three files are needed: 1) SNP data "tsi_only2018.vcf" 2) Population map "tsi_only2018.txt" 3) Geographic coordinates of individuals ""
-3. Data can be accessed from: (include when published).
-4. Set an appropriate working directory where the dataset will be stored.
+# Preliminaries:
+Make sure all required R packages are installed and loaded.
+
+Three files are needed: 
+1) SNP data "tsi_only2018.vcf" 
+2) Population map "tsi_only2018.txt" 
+3) Geographic coordinates of individuals ""
+4) Data can be accessed from: (include doi when published).
 
 Notes:
 "tsi_only2018.vcf" contains 22 individuals over 12 islands. Temporal sampling of Masig-2019 is excluded in this analysis.
 
-Useful links:
+### Useful links:
 https://github.com/Tom-Jenkins/admixture_pie_chart_map_tutorial/blob/master/pie_chart_admixture_map_tutorial.R
 http://membres-timc.imag.fr/Olivier.Francois/LEA/files/LEA_github.pdf
 
@@ -35,8 +36,6 @@ knitr::opts_chunk$set(fig.width=15, fig.height=12, fig.path='RmdFigs/',
                       warning=FALSE, message=FALSE)
 set.seed(53079239)
 ```
-
-Required packages:
 
 ```{r load packages, include = FALSE}
 
@@ -83,20 +82,7 @@ library("readr")
 Read in and convert vcf file to "tsi_only2018.admix.geno" format
 
 
-```{r, eval=FALSE}
-
-#try with write_rds
-
-# write_rds(path = "tsi_only2018.vcf", "cache.rds")
-#     
-# import_vcf <- function(x){
-#   if (x == "cache.rds"){
-#   return (read_rds(x))}
-#   else if (x !="cahce.rds"){
-#   return("N")  
-#   }}
-
-#vcf2geno(input.file = "cache.rds", "tsi_only2018.admix.geno", force = T)
+```{r eval=FALSE}
 
 vcf2geno(input.file = "tsi_only2018.vcf", "tsi_only2018.admix.geno", force = T)
 
@@ -122,13 +108,13 @@ nInd(tsi_22_genid) # 264 individuals
 
 ```
 
-###sNMF function
+### sNMF function
 
 The sNMF function estimates ancestry coefficients using the sparse non-negative matrix factorization. The function returns a "project" containing all runs of the sNMF run for the "tsi_only2018.admix.geno". 
 
 As the K is not clearly defined, it can be useful to perform several runs for various numbers of ancestral lineages (K).
 
-```{r tsi snmf working with the thinned/non-linked file, include=TRUE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 
 # "project2" takes about 30 mins with 50 repetitions. Example here is of only 1 repetitions (for speed), but in the manuscript, 50 were used.
 set.seed(123)
@@ -172,9 +158,9 @@ qmatrix = Q(project2, K = 2, run = best2)
 
 ```
 
-###Individual admixture populations K = 2
+### Individual admixture populations K = 2
 
-```{r}
+```{r echo= FALSE}
 
 #using the ce2 scores. This will plot the following.
 
@@ -280,9 +266,9 @@ ggplotly()
 
 ```
 
-###Individual admixture populations K = 3
+### Individual admixture populations K = 3
 
-```{r}
+```{r echo= FALSE}
 #extract the cross-entropy of all runs where K = 3.
 ce3 = cross.entropy(project2, K = 3)
 ce3
@@ -362,9 +348,9 @@ ggplotly()
 
 ```
 
-###Individual admixture populations K = 4
+### Individual admixture populations K = 4
 
-```{r}
+```{r echo= FALSE}
 
 #extract the cross-entropy of all runs where K = 3.
 ce4 = cross.entropy(project2, K = 4)
@@ -447,7 +433,7 @@ ggplotly()
 
 The K with the lowest cross-entropy score was K = 11. However, when visualised, this K overfit the data (see Schmidt et al. 2020 Sup Figs). A number of K clusters between 2–4 could be supported as visualised here. K = 2 was found to be the optimal number of ancestral lineages for summarising genetic variation between individuals (Schmidt et al. 2020: Fig 1). This level of K was supported by Maynard et al. (2016), when using microsatellite loci to examine Ae. albopictus genetic structure throughout the TSI.
 
-```{r}
+```{r echo= FALSE}
 session_info()
 ```
 
